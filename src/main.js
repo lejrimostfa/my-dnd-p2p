@@ -178,6 +178,8 @@ EventBus.on('p2p:recv', ({ channel, payload }) => {
 // Generic tabbed container factory
 function createTabbedContainer(container, createContentFn, label) {
   const wrapper = document.createElement('div');
+  // Tag wrapper for full-state sync lookups
+  wrapper.dataset.label = label;
   wrapper.className = 'bg-white rounded shadow h-full flex flex-col w-full min-w-0';
 
   // Tab navigation bar
@@ -239,11 +241,11 @@ function createTabbedContainer(container, createContentFn, label) {
       delBtn.className = 'ml-1 text-red-500';
       tabsContainer.append(delBtn);
       delBtn.addEventListener('click', () => {
-        // remove panel and tab button
+        const name = tabBtn.textContent;
         panel.remove();
         tabBtn.remove();
         delBtn.remove();
-        EventBus.emit('tab:delete', { label, index: tabIndex, local: true });
+        EventBus.emit('tab:delete', { label, name, local: true });
       });
     }
 
@@ -294,21 +296,21 @@ function createTabbedContainer(container, createContentFn, label) {
   });
 
   // Remote tab-delete: remove the specified tab
-  EventBus.on('tab:delete', ({ label: rl, index: idx, local }) => {
+  EventBus.on('tab:delete', ({ label: rl, name, local }) => {
     if (local || rl !== label) return;
-    // Find tab buttons (exclude "+" and "×" controls)
-    const tabBtns = Array.from(tabsContainer.querySelectorAll('button'))
+    // Find tab buttons (exclude "+" and "×")
+    const btns = Array.from(tabsContainer.querySelectorAll('button'))
       .filter(b => b.textContent !== '+' && b.textContent !== '×');
-    const tabBtn = tabBtns[idx - 1];
-    if (tabBtn) {
-      // Remove corresponding delete button if present
-      const delBtn = tabBtn.nextSibling;
-      if (delBtn && delBtn.textContent === '×') delBtn.remove();
-      // Remove panel
-      const panel = contentArea.querySelector(`#${label.toLowerCase()}-${idx}`);
-      if (panel) panel.remove();
-      // Remove tab button
+    const idx = btns.findIndex(b => b.textContent === name);
+    if (idx !== -1) {
+      const tabBtn = btns[idx];
+      const delBtnLocal = tabBtn.nextSibling;
+      if (delBtnLocal && delBtnLocal.textContent === '×') delBtnLocal.remove();
       tabBtn.remove();
+      // Remove corresponding panel by position
+      const panels = Array.from(contentArea.querySelectorAll(':scope > *'));
+      const panel = panels[idx];
+      if (panel) panel.remove();
     }
   });
 
@@ -329,22 +331,21 @@ function createTabbedContainer(container, createContentFn, label) {
           // add new tab and rename
           addTab();
           // last created tab button:
-          const newBtn = tabsContainer.querySelectorAll('button')[tabsContainer.querySelectorAll('button').length - (delBtn ? 2 : 1)];
+          const newBtn = tabsContainer.querySelectorAll('button')[tabsContainer.querySelectorAll('button').length - 1];
           newBtn.textContent = name;
         }
       }
     });
     // Remove extra tabs
     if (currentNames.length > names.length) {
-      for (let i = currentNames.length; i > names.length; i--) {
-        // remove the last tab
-        const toRemoveBtn = tabsContainer.querySelectorAll('button')
-          .filter(b => b.textContent !== '+' && b.textContent !== '×')[i-1];
+      // Use Array.from to filter NodeList
+      const filteredBtns = Array.from(tabsContainer.querySelectorAll('button'))
+        .filter(b => b.textContent !== '+' && b.textContent !== '×');
+      for (let i = filteredBtns.length; i > names.length; i--) {
+        const toRemoveBtn = filteredBtns[i - 1];
         const delBtnLocal = toRemoveBtn.nextSibling;
         if (delBtnLocal && delBtnLocal.textContent === '×') delBtnLocal.remove();
         toRemoveBtn.remove();
-        const panel = contentArea.querySelector(`#${label.toLowerCase()}-${i}`);
-        if (panel) panel.remove();
       }
     }
   });
@@ -424,8 +425,9 @@ function startPeriodicFullSync() {
       EventBus.emit('tab:state', {
         label,
         names: (() => {
-          const container = label === 'Map' ? right : left;
-          const nav = container.querySelector('div');
+          // Find the specific panel wrapper by label
+          const wrapper = document.querySelector(`div[data-label="${label}"]`);
+          const nav = wrapper.querySelector('div');
           const tabsContainer = nav.querySelector('div');
           return Array.from(tabsContainer.querySelectorAll('button'))
             .filter(b => b.textContent !== '+' && b.textContent !== '×')
