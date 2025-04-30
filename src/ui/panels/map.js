@@ -260,13 +260,13 @@ if (window.isP2PConnected) {
   });
   EventBus.on('map:tokenMove', ({ id: tid, x, y, local }) => {
     if (local) return;
-    if (tid === localPeerId) return; // ignore our own token
-    if (!globalTokens[tid]) globalTokens[tid] = { x, y, r: 10, color: 'red' };
-    // ignore duplicate positions to prevent flicker
-    const tok = globalTokens[tid];
-    if (tok.x === x && tok.y === y) return;
-    tok.x = x;
-    tok.y = y;
+    if (tid === localPeerId) return;
+    if (!globalTokens[tid]) {
+      globalTokens[tid] = { x, y, r: 10, color: 'red' };
+    } else {
+      globalTokens[tid].x = x;
+      globalTokens[tid].y = y;
+    }
     draw();
   });
 
