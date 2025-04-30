@@ -2,7 +2,7 @@
 
 # My DnD Peer-to-Peer Dashboard
 
-[![Launch App](https://github.com/lejrimostfa/my-dnd-p2p/blob/main/my-dnd-p2p/index.html)](https://github.com/lejrimostfa/my-dnd-p2p/blob/main/index.html)
+[![Launch App](https://github.com/lejrimostfa/my-dnd-p2p/blob/main/index.html)](https://github.com/lejrimostfa/my-dnd-p2p/blob/main/index.html)
 
 Cette application web (pure JS) permet à plusieurs joueurs de se connecter en P2P sans serveur ni base de données pour :
 
