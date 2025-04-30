@@ -187,13 +187,15 @@ function createTabbedContainer(container, createContentFn, label) {
     panel.classList.add('absolute', 'inset-0', 'w-full', 'h-full');
     contentArea.append(panel);
 
-    // Tab click handler
-    tabBtn.addEventListener('click', () => {
-      contentArea.querySelectorAll(':scope > *').forEach(c => (c.style.display = 'none'));
-      panel.style.display = 'block';
-      nav.querySelectorAll('button').forEach(b => b.classList.remove('bg-blue-200'));
-      tabBtn.classList.add('bg-blue-200');
-    });
+  // Tab click handler
+  tabBtn.addEventListener('click', () => {
+    contentArea.querySelectorAll(':scope > *').forEach(c => (c.style.display = 'none'));
+    panel.style.display = 'block';
+    nav.querySelectorAll('button').forEach(b => b.classList.remove('bg-blue-200'));
+    tabBtn.classList.add('bg-blue-200');
+    // Force canvas redraw on tab switch
+    window.dispatchEvent(new Event('resize'));
+  });
 
     // Activate first tab
     if (tabIndex === 1) tabBtn.click();

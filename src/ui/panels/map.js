@@ -203,7 +203,11 @@ if (window.isP2PConnected) {
     globalImages[incomingId] = dataUrl;
     console.log('[MAP UI] apply remote image');
     bgImage = new Image();
-    bgImage.onload = draw;
+    // Ensure canvas has correct size before drawing
+    bgImage.onload = () => {
+      resizeCanvas();
+      draw();
+    };
     bgImage.src = dataUrl;
   });
    
@@ -306,7 +310,10 @@ if (window.isP2PConnected) {
   // Draw initial image if already present for this tab
   if (globalImages[id]) {
     bgImage = new Image();
-    bgImage.onload = draw;
+    bgImage.onload = () => {
+      resizeCanvas();
+      draw();
+    };
     bgImage.src = globalImages[id];
     clearBtn.disabled = false;
     uploadBtn.disabled = true;
