@@ -10,13 +10,7 @@ Cette application web (pure JS) permet à plusieurs joueurs de se connecter en P
 
 ## Démo
 
-<video controls width="640" height="360" style="max-width:100%; border:1px solid #ccc; border-radius:4px;">
-  <source src="/DemoVideoDnDP2P.mp4" type="video/mp4">
-  Votre navigateur ne supporte pas la vidéo HTML5.
-  <a href="https://github.com/lejrimostfa/my-dnd-p2p/blob/main/DemoVideoDnDP2P.mp4">
-    Télécharger la vidéo
-  </a>
-</video>
+<iframe width="640" height="360" style="max-width:100%;" src="https://www.youtube.com/embed/yLxos6WJ4L0" title="Demo Video" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
 
 ## Fonctionnalités
 
