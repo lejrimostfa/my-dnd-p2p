@@ -12,7 +12,7 @@ Cette application web (pure JS) permet à plusieurs joueurs de se connecter en P
 
 ## Démo
 
-[![Demo Video](https://img.youtube.com/vi/yLxos6WJ4L0/0.jpg)](https://youtu.be/yLxos6WJ4L0)
+[![Demo Video](https://img.youtube.com/vi/01PuBfIM0kg/0.jpg)](https://youtu.be/01PuBfIM0kg)
 
 *Cliquez sur l’image pour lancer la démo sur YouTube.*
 
