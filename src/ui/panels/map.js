@@ -127,8 +127,16 @@ if (window.isP2PConnected) {
     }, 1000);
   }
 
-  // Listen for external startSync and launch map sync
+  // Listen for external startSync and perform initial and periodic sync
   EventBus.on('map:startSync', () => {
+    // Emit initial token state on reconnect
+    const tok = globalTokens[localPeerId];
+    EventBus.emit('map:tokenMove', { id: localPeerId, x: tok.x, y: tok.y, local: true });
+    const size = parseInt(sizeSlider.value, 10);
+    EventBus.emit('map:sizeChange', { id: localPeerId, size, local: true });
+    const color = colorSelect.value;
+    EventBus.emit('map:colorChange', { id: localPeerId, color, local: true });
+    // Start periodic map sync
     startMapPeriodicSync();
   });
   function stopMapPeriodicSync() {

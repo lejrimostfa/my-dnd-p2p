@@ -36,7 +36,6 @@ peer.on('open', id => {
 // Outgoing connection
 peerConnectBtn.addEventListener('click', () => {
   if (window.isP2PConnected && window.p2pConn) {
-    stopPeriodicFullSync();
     // Notify other peer of disconnection
     if (window.p2pSend) {
       try {
@@ -88,7 +87,6 @@ peerConnectBtn.addEventListener('click', () => {
     conn.on('error', err => console.warn('PeerJS connection error:', err));
     conn.on('close', () => console.log('PeerJS connection closed'));
     conn.on('data', data => EventBus.emit('p2p:recv', data));
-    startPeriodicFullSync();
   });
 });
 
@@ -121,7 +119,6 @@ peer.on('connection', conn => {
     conn.on('error', err => console.warn('PeerJS connection error:', err));
     conn.on('close', () => console.log('PeerJS connection closed'));
     conn.on('data', data => EventBus.emit('p2p:recv', data));
-    startPeriodicFullSync();
   });
 });
 
@@ -314,41 +311,6 @@ function createTabbedContainer(container, createContentFn, label) {
     }
   });
 
-  // Remote full-state sync: reconcile tab names
-  EventBus.on('tab:state', ({ label: rl, names, local }) => {
-    if (local || rl !== label) return;
-    // current names
-    const btns = Array.from(tabsContainer.querySelectorAll('button'))
-      .filter(b => b.textContent !== '+' && b.textContent !== '×');
-    const currentNames = btns.map(b => b.textContent);
-    // Add missing tabs
-    names.forEach((name, idx) => {
-      if (currentNames[idx] !== name) {
-        if (idx < currentNames.length) {
-          // rename existing
-          btns[idx].textContent = name;
-        } else {
-          // add new tab and rename
-          addTab();
-          // last created tab button:
-          const newBtn = tabsContainer.querySelectorAll('button')[tabsContainer.querySelectorAll('button').length - 1];
-          newBtn.textContent = name;
-        }
-      }
-    });
-    // Remove extra tabs
-    if (currentNames.length > names.length) {
-      // Use Array.from to filter NodeList
-      const filteredBtns = Array.from(tabsContainer.querySelectorAll('button'))
-        .filter(b => b.textContent !== '+' && b.textContent !== '×');
-      for (let i = filteredBtns.length; i > names.length; i--) {
-        const toRemoveBtn = filteredBtns[i - 1];
-        const delBtnLocal = toRemoveBtn.nextSibling;
-        if (delBtnLocal && delBtnLocal.textContent === '×') delBtnLocal.remove();
-        toRemoveBtn.remove();
-      }
-    }
-  });
 
   wrapper.append(nav, contentArea);
   container.append(wrapper);
@@ -409,42 +371,6 @@ EventBus.on('tab:rename', ({ local, ...data }) => {
 
 
 
-EventBus.on('tab:state', ({ local, label, names }) => {
-  if (local) {
-    console.log('[P2P SEND] tab:state', { label, names });
-    if (window.p2pSend) window.p2pSend({ channel: 'tab:state', payload: { label, names } });
-  }
-});
-
-// Periodic full tab state sync control
-function startPeriodicFullSync() {
-  if (syncIntervalId) return;
-  syncIntervalId = setInterval(() => {
-    if (!window.isP2PConnected) return;
-    ['Character','Chat','Map'].forEach(label => {
-      EventBus.emit('tab:state', {
-        label,
-        names: (() => {
-          // Find the specific panel wrapper by label
-          const wrapper = document.querySelector(`div[data-label="${label}"]`);
-          const nav = wrapper.querySelector('div');
-          const tabsContainer = nav.querySelector('div');
-          return Array.from(tabsContainer.querySelectorAll('button'))
-            .filter(b => b.textContent !== '+' && b.textContent !== '×')
-            .map(b => b.textContent);
-        })(),
-        local: true
-      });
-    });
-  }, 5000);
-}
-
-function stopPeriodicFullSync() {
-  if (syncIntervalId) {
-    clearInterval(syncIntervalId);
-    syncIntervalId = null;
-  }
-}
 
 
 
