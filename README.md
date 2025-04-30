@@ -2,7 +2,9 @@
 
 # My DnD Peer-to-Peer Dashboard
 
-[Accéder à la démo en ligne](https://mostfa.github.io/my-dnd-p2p/index.html)
+<a href="https://mostfa.github.io/my-dnd-p2p/index.html">
+   <img src="https://github.com/mostfa/my-dnd-p2p/blob/main/PLAYNOW.png?raw=true" alt="Play Now" style="max-width: 200px;">
+</a>
 
 Cette application web (pure JS) permet à plusieurs joueurs de se connecter en P2P sans serveur ni base de données pour :
 
