@@ -10,6 +10,8 @@ const localPeerId = crypto.randomUUID();
 // Stored images per tab id
 const globalImages = {};
 
+
+
 export function createMapPanel(id) {
   const container = document.createElement('div');
   container.id = id;
@@ -153,6 +155,45 @@ if (window.isP2PConnected) {
     draw();
   }
   window.addEventListener('resize', resizeCanvas);
+  // Animation state for smooth token movement
+  const animations = {};
+  const ANIM_DURATION = 1000; // milliseconds
+  let isAnimating = false;
+
+  function animateStep(timestamp) {
+    let needRedraw = false;
+    for (const id in animations) {
+      const anim = animations[id];
+      const t = Math.min((timestamp - anim.startTime) / ANIM_DURATION, 1);
+      globalTokens[id].x = anim.startX + (anim.targetX - anim.startX) * t;
+      globalTokens[id].y = anim.startY + (anim.targetY - anim.startY) * t;
+      needRedraw = true;
+      if (t === 1) {
+        delete animations[id];
+      }
+    }
+    if (needRedraw) draw();
+    if (Object.keys(animations).length > 0) {
+      requestAnimationFrame(animateStep);
+    } else {
+      isAnimating = false;
+    }
+  }
+
+  function animateToken(id, x, y) {
+    const tok = globalTokens[id] || (globalTokens[id] = { x, y, r: 10, color: 'red' });
+    animations[id] = {
+      startX: tok.x,
+      startY: tok.y,
+      targetX: x,
+      targetY: y,
+      startTime: performance.now()
+    };
+    if (!isAnimating) {
+      isAnimating = true;
+      requestAnimationFrame(animateStep);
+    }
+  }
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -297,13 +338,7 @@ if (window.isP2PConnected) {
   EventBus.on('map:tokenMove', ({ id: tid, x, y, local }) => {
     if (local) return;
     if (tid === localPeerId) return;
-    if (!globalTokens[tid]) {
-      globalTokens[tid] = { x, y, r: 10, color: 'red' };
-    } else {
-      globalTokens[tid].x = x;
-      globalTokens[tid].y = y;
-    }
-    draw();
+    animateToken(tid, x, y);
   });
 
   // Sync on connect (guarded to prevent duplicate initial sync per tab)
