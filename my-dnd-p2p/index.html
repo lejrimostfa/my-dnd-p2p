@@ -8,11 +8,48 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <title>My DnD P2P Dashboard</title>
 </head>
-<body class="bg-gray-50">
+<body class="bg-gray-50 flex flex-col">
+  <div class="flex items-center justify-between p-4 bg-white shadow space-x-2">
+    <select id="p2p-mode" class="px-2 py-1 border rounded">
+      <option value="offer">Create Offer</option>
+      <option value="answer">Join Offer</option>
+    </select>
+    <button id="connect-btn" class="px-4 py-2 bg-green-500 text-white rounded">
+      Connect P2P
+    </button>
+    <span id="status-indicator" class="w-3 h-3 rounded-full bg-red-500"></span>
+  </div>
   <div
     id="app"
-    class="h-screen grid grid-cols-1 md:grid-cols-3 grid-rows-auto md:grid-rows-1 gap-4 p-4"
+    class="flex-1 grid grid-cols-1 md:grid-cols-3 grid-rows-auto md:grid-rows-1 gap-4 p-4"
   ></div>
   <script type="module" src="./src/main.js"></script>
+
+  <!-- Signal Modal -->
+  <div id="signal-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center">
+    <div class="bg-white rounded shadow-lg p-4 w-11/12 md:w-1/2">
+      <h3 id="signal-modal-title" class="text-lg font-semibold mb-2">Signal Data</h3>
+      <label class="block mb-1 flex justify-between items-center">
+        <span>Offer (read-only):</span>
+        <div class="space-x-2">
+          <button id="copy-offer-btn" class="px-2 py-1 bg-gray-200 rounded">Copy</button>
+          <button id="paste-offer-btn" class="px-2 py-1 bg-gray-200 rounded">Paste</button>
+        </div>
+      </label>
+      <textarea id="offer-text" class="w-full h-24 border rounded mb-4"></textarea>
+      <label class="block mb-1 flex justify-between items-center">
+        <span>Paste Answer here:</span>
+        <div class="space-x-2">
+          <button id="copy-answer-btn" class="px-2 py-1 bg-gray-200 rounded">Copy</button>
+          <button id="paste-answer-btn" class="px-2 py-1 bg-gray-200 rounded">Paste</button>
+        </div>
+      </label>
+      <textarea id="answer-text" class="w-full h-24 border rounded mb-4"></textarea>
+      <div class="flex justify-end space-x-2">
+        <button id="signal-cancel" class="px-4 py-2 bg-gray-300 rounded">Cancel</button>
+        <button id="signal-confirm" class="px-4 py-2 bg-blue-500 text-white rounded">Confirm</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>
