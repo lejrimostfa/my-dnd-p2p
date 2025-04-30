@@ -1,10 +1,63 @@
 
-import { P2PConnection } from './p2p/connection.js';
 import { EventBus } from './utils/eventBus.js';
 import { setupLayout } from './ui/layout.js';
 import { createCharacterPanel } from './ui/panels/character.js';
 import { createChatPanel } from './ui/panels/chat.js';
 import { createMapPanel } from './ui/panels/map.js';
+
+// --- PeerJS signaling via CDN ---
+const peer = new Peer(); // global Peer from CDN
+
+const peerIdInput   = document.getElementById('peer-id');
+const theirIdInput  = document.getElementById('their-peer-id');
+const peerConnectBtn= document.getElementById('peer-connect');
+peerConnectBtn.disabled = true;
+const pastePeerIdBtn = document.getElementById('paste-peer-id');
+const statusIndicator = document.getElementById('status-indicator');
+
+const copyPeerIdBtn = document.getElementById('copy-peer-id');
+copyPeerIdBtn.addEventListener('click', () => {
+  if (peerIdInput.value) {
+    navigator.clipboard.writeText(peerIdInput.value)
+      .then(() => console.log('Peer ID copié !'))
+      .catch(err => console.error('Erreur copie Peer ID', err));
+  }
+});
+
+// Show own Peer ID
+peer.on('open', id => {
+  peerIdInput.value = id;
+  console.log('My Peer ID:', id);
+});
+
+// Outgoing connection
+peerConnectBtn.addEventListener('click', () => {
+  const theirId = theirIdInput.value.trim();
+  if (!theirId) return alert("Veuillez saisir l'ID du pair !");
+  const conn = peer.connect(theirId);
+  conn.on('open', () => {
+    console.log('Connected to', theirId);
+    statusIndicator.classList.replace('bg-red-500','bg-green-500');
+    EventBus.emit('p2p:connected');
+    peerConnectBtn.classList.replace('bg-gray-500','bg-green-500');
+    window.isP2PConnected = true;
+    window.p2pSend = data => conn.send(data);
+    conn.on('data', data => EventBus.emit('p2p:recv', data));
+  });
+});
+
+// Incoming connection
+peer.on('connection', conn => {
+  conn.on('open', () => {
+    console.log('Peer connected:', conn.peer);
+    statusIndicator.classList.replace('bg-red-500','bg-green-500');
+    EventBus.emit('p2p:connected');
+    peerConnectBtn.classList.replace('bg-gray-500','bg-green-500');
+    window.isP2PConnected = true;
+    window.p2pSend = data => conn.send(data);
+    conn.on('data', data => EventBus.emit('p2p:recv', data));
+  });
+});
 
 // Helper: split a string into chunks of given size
 function splitString(str, size) {
@@ -18,144 +71,63 @@ function splitString(str, size) {
 // Buffer for incoming image chunks: { [fileId]: { total, received: [], chunks: [] } }
 const imageBuffers = {};
 
-const p2p = new P2PConnection();
-const connectBtn = document.getElementById('connect-btn');
-const statusIndicator = document.getElementById('status-indicator');
-const modeSelect = document.getElementById('p2p-mode');
-
-// Affiche le modal de signaling et renvoie la réponse collée (ou null si annulé)
-function showSignalModal(offer) {
-  return new Promise(resolve => {
-    const modal = document.getElementById('signal-modal');
-    const offerTextarea = document.getElementById('offer-text');
-    const answerTextarea = document.getElementById('answer-text');
-    const confirmBtn = document.getElementById('signal-confirm');
-    const cancelBtn = document.getElementById('signal-cancel');
-
-    offerTextarea.value = offer;
-    answerTextarea.value = '';
-    modal.classList.remove('hidden');
-
-    function cleanup() {
-      modal.classList.add('hidden');
-      confirmBtn.removeEventListener('click', onConfirm);
-      cancelBtn.removeEventListener('click', onCancel);
-    }
-
-    function onConfirm() {
-      const answer = answerTextarea.value.trim();
-      cleanup();
-      resolve(answer);
-    }
-
-    function onCancel() {
-      cleanup();
-      resolve(null);
-    }
-
-    confirmBtn.addEventListener('click', onConfirm);
-    cancelBtn.addEventListener('click', onCancel);
-  });
-}
-
-async function handleConnect() {
-  const mode = modeSelect.value;
-  if (mode === 'offer') {
-    // Caller flow
-    const offer = await p2p.createOffer();
-    const answer = await showSignalModal(offer);
-    if (!answer) return alert('Answer not provided');
-    await p2p.receiveAnswer(answer);
-    // Set indicator to orange (signaling in progress)
-    statusIndicator.classList.remove('bg-red-500','bg-green-500');
-    statusIndicator.classList.add('bg-orange-500');
-  } else {
-    // Callee flow
-    // Ask user to paste OFFER
-    const offer = await showSignalModal(''); // empty offer textarea editable
-    if (!offer) return alert('Offer not provided');
-    const answer = await p2p.receiveOffer(offer);
-    // Show generated answer for copy
-    await showSignalModal(answer);
-    // Set indicator to orange (signaling in progress)
-    statusIndicator.classList.remove('bg-red-500','bg-green-500');
-    statusIndicator.classList.add('bg-orange-500');
-  }
-  // After exchange, mark as connected
-  statusIndicator.classList.replace('bg-orange-500','bg-green-500');
-  document.getElementById('signal-modal').classList.add('hidden');
-
-  // When DataChannel opens, update indicator to green and hide signaling modal
-  p2p.dataChannel.onopen = () => {
-    statusIndicator.classList.replace('bg-orange-500','bg-green-500');
-    document.getElementById('signal-modal').classList.add('hidden');
-    // Notify panels that P2P is connected to sync current state
-    EventBus.emit('p2p:connected');
-  };
-  p2p.dataChannel.onclose = () => {
-    statusIndicator.classList.replace('bg-green-500','bg-red-500');
-  };
-}
-
-connectBtn.addEventListener('click', handleConnect);
-
-// Global incoming P2P messages router (mark remote)
-// Enhanced: emit progress event on image chunk receive
-p2p.onMessage(({ channel, payload }) => {
-  switch (channel) {
+// Listen for all incoming P2P messages
+EventBus.on('p2p:recv', ({ channel, payload }) => {
+  switch(channel) {
+    case 'chat':          EventBus.emit('chat:receive', payload); break;
     case 'map:image-chunk': {
-      const { fileId, index, total, chunk } = payload;
+      const { fileId, index, total, chunk, id } = payload;
       if (!imageBuffers[fileId]) {
-        imageBuffers[fileId] = { total, received: 0, chunks: [] };
+        imageBuffers[fileId] = { total, received: 0, chunks: [], id };
       }
       const buf = imageBuffers[fileId];
       if (!buf.chunks[index]) {
         buf.chunks[index] = chunk;
         buf.received++;
-        // Emit progress event
         const percent = Math.floor((buf.received / buf.total) * 100);
-        EventBus.emit('map:imageProgress', { percent, fileId });
+        EventBus.emit('map:imageProgress', { percent, fileId, id });
       }
       if (buf.received === total) {
         const dataUrl = buf.chunks.join('');
         delete imageBuffers[fileId];
-        console.log('[P2P RECV] map:image full, emitting');
-        EventBus.emit('map:imageChange', { dataUrl, local: false });
-        // Signal completion
-        EventBus.emit('map:imageProgress', { percent: 100, fileId });
+        EventBus.emit('map:imageChange', { dataUrl, local: false, id: buf.id });
+        EventBus.emit('map:imageProgress', { percent: 100, fileId, id: buf.id });
       }
       break;
     }
-    case 'chat':
-      EventBus.emit('chat:receive', payload);
-      break;
-    case 'map:image':
-      console.log('[P2P RECV] map:image', payload.dataUrl?.slice(0,50));
-      EventBus.emit('map:imageChange', { ...payload, local: false });
-      break;
-    case 'map:token':
-      EventBus.emit('map:tokenMove', { ...payload, local: false });
-      break;
-    case 'map:color':
-      EventBus.emit('map:colorChange', { ...payload, local: false });
-      break;
+    case 'map:token':     EventBus.emit('map:tokenMove', { ...payload, local:false }); break;
+    case 'map:color':     EventBus.emit('map:colorChange', { ...payload, local:false }); break;
+    case 'map:dim':       EventBus.emit('map:dimChange', { ...payload, local:false }); break;
+    case 'map:clear':     EventBus.emit('map:clear', { local:false, id: payload.id }); break;
+    case 'map:sizeChange':EventBus.emit('map:sizeChange', { ...payload, local:false }); break;
+    case 'tab:create':    EventBus.emit('tab:create', { ...payload, local:false }); break;
+    case 'tab:delete':    EventBus.emit('tab:delete', { ...payload, local:false }); break;
+    case 'tab:rename':    EventBus.emit('tab:rename', { ...payload, local:false }); break;
+    case 'tab:state':     EventBus.emit('tab:state', { ...payload, local:false }); break;
+    case 'map:imageProgress': EventBus.emit('map:imageProgress', { percent: payload.percent, id: payload.id }); break;
+    // add other channels as needed
   }
 });
 
 // Generic tabbed container factory
 function createTabbedContainer(container, createContentFn, label) {
   const wrapper = document.createElement('div');
-  wrapper.className = 'bg-white rounded shadow h-full flex flex-col';
+  wrapper.className = 'bg-white rounded shadow h-full flex flex-col w-full min-w-0';
 
   // Tab navigation bar
   const nav = document.createElement('div');
-  nav.className = 'flex items-center border-b px-2 py-1 overflow-x-auto space-x-2';
+  nav.className = 'w-full flex items-center border-b px-2 py-1 overflow-hidden';
+
+  // Container for tabs (scrollable)
+  const tabsContainer = document.createElement('div');
+  tabsContainer.className = 'flex-1 flex items-center space-x-2 overflow-x-auto min-w-0';
 
   // "Add tab" button
   const addBtn = document.createElement('button');
   addBtn.textContent = '+';
-  addBtn.className = 'ml-auto px-2 py-1 bg-blue-500 text-white rounded';
-  nav.append(addBtn);
+  addBtn.className = 'px-2 py-1 bg-blue-500 text-white rounded flex-shrink-0';
+
+  nav.append(tabsContainer, addBtn);
 
   // Content area for tab panels
   const contentArea = document.createElement('div');
@@ -167,8 +139,47 @@ function createTabbedContainer(container, createContentFn, label) {
     // Tab button
     const tabBtn = document.createElement('button');
     tabBtn.textContent = `${label} ${tabIndex}`;
-    tabBtn.className = 'px-2 py-1 rounded';
-    nav.insertBefore(tabBtn, addBtn);
+    tabBtn.className = 'px-2 py-1 rounded relative';
+    tabsContainer.append(tabBtn);
+
+    // Make tab name editable on double-click
+    tabBtn.addEventListener('dblclick', () => {
+      const currentName = tabBtn.textContent;
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = currentName;
+      input.className = 'absolute inset-0 w-full h-full p-1 text-left';
+      tabBtn.textContent = '';
+      tabBtn.append(input);
+      input.focus();
+      function finish() {
+        const newName = input.value.trim() || currentName;
+        tabBtn.textContent = newName;
+        EventBus.emit('tab:rename', { label, index: tabIndex, name: newName, local: true });
+      }
+      input.addEventListener('blur', finish);
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          input.blur();
+        }
+      });
+    });
+
+    // Add delete button if tabIndex > 1
+    let delBtn = null;
+    if (tabIndex > 1) {
+      delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.className = 'ml-1 text-red-500';
+      tabsContainer.append(delBtn);
+      delBtn.addEventListener('click', () => {
+        // remove panel and tab button
+        panel.remove();
+        tabBtn.remove();
+        delBtn.remove();
+        EventBus.emit('tab:delete', { label, index: tabIndex, local: true });
+      });
+    }
 
     // Panel content
     const panel = createContentFn(`${label.toLowerCase()}-${tabIndex}`);
@@ -186,10 +197,89 @@ function createTabbedContainer(container, createContentFn, label) {
 
     // Activate first tab
     if (tabIndex === 1) tabBtn.click();
+
+    // Emit tab:create event
+    EventBus.emit('tab:create', { label, index: tabIndex, local: true });
   }
 
   addBtn.addEventListener('click', addTab);
+
+  // Apply remote tab renames
+  EventBus.on('tab:rename', ({ label: remLabel, index: remIndex, name, local }) => {
+    if (local) return;
+    if (remLabel === label) {
+      // find the correct tab button
+      const btns = Array.from(tabsContainer.querySelectorAll('button')).filter(
+        b => !b.textContent.startsWith('×') && b.textContent !== '+'
+      );
+      const targetBtn = btns[remIndex - 1];
+      if (targetBtn) targetBtn.textContent = name;
+    }
+  });
+
   addTab();
+
+  // Remote tab-create: add missing tabs up to index
+  EventBus.on('tab:create', ({ label: rl, index: idx, local }) => {
+    if (local || rl !== label) return;
+    while (tabIndex < idx) addTab();
+  });
+
+  // Remote tab-delete: remove the specified tab
+  EventBus.on('tab:delete', ({ label: rl, index: idx, local }) => {
+    if (local || rl !== label) return;
+    // Find tab buttons (exclude "+" and "×" controls)
+    const tabBtns = Array.from(tabsContainer.querySelectorAll('button'))
+      .filter(b => b.textContent !== '+' && b.textContent !== '×');
+    const tabBtn = tabBtns[idx - 1];
+    if (tabBtn) {
+      // Remove corresponding delete button if present
+      const delBtn = tabBtn.nextSibling;
+      if (delBtn && delBtn.textContent === '×') delBtn.remove();
+      // Remove panel
+      const panel = contentArea.querySelector(`#${label.toLowerCase()}-${idx}`);
+      if (panel) panel.remove();
+      // Remove tab button
+      tabBtn.remove();
+    }
+  });
+
+  // Remote full-state sync: reconcile tab names
+  EventBus.on('tab:state', ({ label: rl, names, local }) => {
+    if (local || rl !== label) return;
+    // current names
+    const btns = Array.from(tabsContainer.querySelectorAll('button'))
+      .filter(b => b.textContent !== '+' && b.textContent !== '×');
+    const currentNames = btns.map(b => b.textContent);
+    // Add missing tabs
+    names.forEach((name, idx) => {
+      if (currentNames[idx] !== name) {
+        if (idx < currentNames.length) {
+          // rename existing
+          btns[idx].textContent = name;
+        } else {
+          // add new tab and rename
+          addTab();
+          // last created tab button:
+          const newBtn = tabsContainer.querySelectorAll('button')[tabsContainer.querySelectorAll('button').length - (delBtn ? 2 : 1)];
+          newBtn.textContent = name;
+        }
+      }
+    });
+    // Remove extra tabs
+    if (currentNames.length > names.length) {
+      for (let i = currentNames.length; i > names.length; i--) {
+        // remove the last tab
+        const toRemoveBtn = tabsContainer.querySelectorAll('button')
+          .filter(b => b.textContent !== '+' && b.textContent !== '×')[i-1];
+        const delBtnLocal = toRemoveBtn.nextSibling;
+        if (delBtnLocal && delBtnLocal.textContent === '×') delBtnLocal.remove();
+        toRemoveBtn.remove();
+        const panel = contentArea.querySelector(`#${label.toLowerCase()}-${i}`);
+        if (panel) panel.remove();
+      }
+    }
+  });
 
   wrapper.append(nav, contentArea);
   container.append(wrapper);
@@ -199,65 +289,123 @@ function createTabbedContainer(container, createContentFn, label) {
 const root = document.getElementById('app');
 const { left, right } = setupLayout(root);
 
-// Create tabbed panels in each section
+// Ensure tabbed panels are created immediately after layout initialization, outside any conditionals
 createTabbedContainer(left, createCharacterPanel, 'Character');
 createTabbedContainer(left, createChatPanel, 'Chat');
 createTabbedContainer(right, createMapPanel, 'Map');
 
 // Relay chat messages over P2P
 EventBus.on('chat:send', msg => {
-  p2p.send({ channel: 'chat', payload: msg });
+  console.log('[P2P SEND] chat', msg);
+  if (window.p2pSend) window.p2pSend({ channel: 'chat', payload: msg });
 });
 
+// Sync dim changes
+EventBus.on('map:dimChange', ({ local, ...data }) => {
+  if (local) {
+    console.log('[P2P SEND] map:dim', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'map:dim', payload: data });
+  }
+});
+// Sync clear
+EventBus.on('map:clear', ({ local, id }) => {
+  if (local) {
+    console.log('[P2P SEND] map:clear', id);
+    if (window.p2pSend) window.p2pSend({ channel: 'map:clear', payload: { id } });
+  }
+});
 
-// Copy text from modal textareas
-const copyOfferBtn = document.getElementById('copy-offer-btn');
-const copyAnswerBtn = document.getElementById('copy-answer-btn');
+// Sync tab create/delete
+EventBus.on('tab:create', ({ local, ...data }) => {
+  if (local) {
+    console.log('[P2P SEND] tab:create', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'tab:create', payload: data });
+  }
+});
+EventBus.on('tab:delete', ({ local, ...data }) => {
+  if (local) {
+    console.log('[P2P SEND] tab:delete', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'tab:delete', payload: data });
+  }
+});
 
-copyOfferBtn.addEventListener('click', () => {
-  const text = document.getElementById('offer-text').value;
-  navigator.clipboard.writeText(text).then(() => {
-    copyOfferBtn.textContent = 'Copied!';
-    setTimeout(() => { copyOfferBtn.textContent = 'Copy'; }, 1000);
+// Sync tab renames
+EventBus.on('tab:rename', ({ local, ...data }) => {
+  if (local) {
+    console.log('[P2P SEND] tab:rename', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'tab:rename', payload: data });
+  }
+});
+
+// Periodic full tab state sync
+setInterval(() => {
+  // for each container type, emit its state
+  ['Character','Chat','Map'].forEach(label => {
+    EventBus.emit('tab:state', {
+      label,
+      names: (() => {
+        // collect names of buttons in that container
+        const container = label === 'Map' ? right : left; // use setupLayout variables
+        const nav = container.querySelector('div'); // first nav
+        const tabsContainer = nav.querySelector('div');
+        return Array.from(tabsContainer.querySelectorAll('button'))
+          .filter(b => b.textContent !== '+' && b.textContent !== '×')
+          .map(b => b.textContent);
+      })(),
+      local: true
+    });
   });
+}, 5000);
+
+EventBus.on('tab:state', ({ local, label, names }) => {
+  if (local) {
+    console.log('[P2P SEND] tab:state', { label, names });
+    if (window.p2pSend) window.p2pSend({ channel: 'tab:state', payload: { label, names } });
+  }
 });
 
-copyAnswerBtn.addEventListener('click', () => {
-  const text = document.getElementById('answer-text').value;
-  navigator.clipboard.writeText(text).then(() => {
-    copyAnswerBtn.textContent = 'Copied!';
-    setTimeout(() => { copyAnswerBtn.textContent = 'Copy'; }, 1000);
-  });
-});
 
-// Paste buttons for Offer and Answer
-const pasteOfferBtn = document.getElementById('paste-offer-btn');
-pasteOfferBtn.addEventListener('click', async () => {
-  const text = await navigator.clipboard.readText();
-  document.getElementById('offer-text').value = text;
-});
-
-const pasteAnswerBtn = document.getElementById('paste-answer-btn');
-pasteAnswerBtn.addEventListener('click', async () => {
-  const text = await navigator.clipboard.readText();
-  document.getElementById('answer-text').value = text;
-});
 
 // Send map image in chunks when local upload occurs
-EventBus.on('map:imageChange', ({ local, ...data }) => {
+EventBus.on('map:imageChange', ({ local, id, ...data }) => {
   if (!local) return;
+  console.log('[P2P SEND] map:imageChange', { id, dataUrlSnippet: data.dataUrl.slice(0,50) });
   const fileId = crypto.randomUUID();
   const chunks = splitString(data.dataUrl, 16000);
   chunks.forEach((chunk, index) => {
-    p2p.send({
+    if (window.p2pSend) window.p2pSend({
       channel: 'map:image-chunk',
-      payload: { fileId, index, total: chunks.length, chunk }
+      payload: { fileId, index, total: chunks.length, chunk, id }
     });
   });
 });
 EventBus.on('map:tokenMove', ({ local, ...data }) => {
-  if (local) p2p.send({ channel: 'map:token', payload: data });
+  if (local) {
+    console.log('[P2P SEND] map:token', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'map:token', payload: data });
+  }
 });
 EventBus.on('map:colorChange', ({ local, ...data }) => {
-  if (local) p2p.send({ channel: 'map:color', payload: data });
+  if (local) {
+    console.log('[P2P SEND] map:color', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'map:color', payload: data });
+  }
+});
+// Sync token-size changes
+EventBus.on('map:sizeChange', ({ local, ...data }) => {
+  if (local) {
+    console.log('[P2P SEND] map:sizeChange', data);
+    if (window.p2pSend) window.p2pSend({ channel: 'map:sizeChange', payload: data });
+  }
+});
+pastePeerIdBtn.addEventListener('click', async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    theirIdInput.value = text;
+    peerConnectBtn.disabled = false;
+    peerConnectBtn.classList.replace('bg-gray-500', 'bg-green-500');
+    console.log('Peer ID collé :', text);
+  } catch (e) {
+    console.error('Impossible de coller depuis le presse-papiers', e);
+  }
 });
