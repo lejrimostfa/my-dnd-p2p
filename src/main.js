@@ -5,6 +5,9 @@ import { createCharacterPanel } from './ui/panels/character.js';
 import { createChatPanel } from './ui/panels/chat.js';
 import { createMapPanel } from './ui/panels/map.js';
 
+// Sync interval ID for full state
+let syncIntervalId = null;
+
 // --- PeerJS signaling via CDN ---
 const peer = new Peer(); // global Peer from CDN
 
@@ -32,6 +35,31 @@ peer.on('open', id => {
 
 // Outgoing connection
 peerConnectBtn.addEventListener('click', () => {
+  if (window.isP2PConnected && window.p2pConn) {
+    stopPeriodicFullSync();
+    // Notify other peer of disconnection
+    if (window.p2pSend) {
+      try {
+        window.p2pSend({ channel: 'p2p:disconnect', payload: null });
+      } catch (e) {
+        console.warn('Could not send disconnect message:', e);
+      }
+    }
+    console.log('Disconnected');
+    EventBus.emit('p2p:disconnected', { local: true });
+    // Short cooldown to ensure pending sends complete before closing
+    setTimeout(() => {
+      window.p2pConn.close();
+      window.p2pSend = null;
+      window.p2pConn = null;
+      window.isP2PConnected = false;
+      peerConnectBtn.textContent = 'Connecter';
+      peerConnectBtn.classList.replace('bg-red-500', 'bg-gray-500');
+      peerConnectBtn.disabled = true;
+      statusIndicator.classList.replace('bg-green-500', 'bg-red-500');
+    }, 100);
+    return;
+  }
   const theirId = theirIdInput.value.trim();
   if (!theirId) return alert("Veuillez saisir l'ID du pair !");
   const conn = peer.connect(theirId);
@@ -39,10 +67,28 @@ peerConnectBtn.addEventListener('click', () => {
     console.log('Connected to', theirId);
     statusIndicator.classList.replace('bg-red-500','bg-green-500');
     EventBus.emit('p2p:connected');
+    // Trigger map periodic sync start
+    EventBus.emit('map:startSync');
     peerConnectBtn.classList.replace('bg-gray-500','bg-green-500');
     window.isP2PConnected = true;
-    window.p2pSend = data => conn.send(data);
+    window.p2pConn = conn;
+    peerConnectBtn.textContent = 'Disconnect';
+    peerConnectBtn.classList.replace('bg-green-500', 'bg-red-500');
+    window.p2pSend = data => {
+      if (conn.open) {
+        try {
+          conn.send(data);
+        } catch (e) {
+          console.warn('P2P send error:', e);
+        }
+      } else {
+        console.warn('Cannot send; connection closed');
+      }
+    };
+    conn.on('error', err => console.warn('PeerJS connection error:', err));
+    conn.on('close', () => console.log('PeerJS connection closed'));
     conn.on('data', data => EventBus.emit('p2p:recv', data));
+    startPeriodicFullSync();
   });
 });
 
@@ -52,10 +98,30 @@ peer.on('connection', conn => {
     console.log('Peer connected:', conn.peer);
     statusIndicator.classList.replace('bg-red-500','bg-green-500');
     EventBus.emit('p2p:connected');
+    // Trigger map periodic sync start
+    EventBus.emit('map:startSync');
+    // Enable disconnect button for the peer who accepted the connection
+    peerConnectBtn.disabled = false;
     peerConnectBtn.classList.replace('bg-gray-500','bg-green-500');
     window.isP2PConnected = true;
-    window.p2pSend = data => conn.send(data);
+    window.p2pConn = conn;
+    peerConnectBtn.textContent = 'Disconnect';
+    peerConnectBtn.classList.replace('bg-green-500', 'bg-red-500');
+    window.p2pSend = data => {
+      if (conn.open) {
+        try {
+          conn.send(data);
+        } catch (e) {
+          console.warn('P2P send error:', e);
+        }
+      } else {
+        console.warn('Cannot send; connection closed');
+      }
+    };
+    conn.on('error', err => console.warn('PeerJS connection error:', err));
+    conn.on('close', () => console.log('PeerJS connection closed'));
     conn.on('data', data => EventBus.emit('p2p:recv', data));
+    startPeriodicFullSync();
   });
 });
 
@@ -339,25 +405,8 @@ EventBus.on('tab:rename', ({ local, ...data }) => {
   }
 });
 
-// Periodic full tab state sync
-setInterval(() => {
-  // for each container type, emit its state
-  ['Character','Chat','Map'].forEach(label => {
-    EventBus.emit('tab:state', {
-      label,
-      names: (() => {
-        // collect names of buttons in that container
-        const container = label === 'Map' ? right : left; // use setupLayout variables
-        const nav = container.querySelector('div'); // first nav
-        const tabsContainer = nav.querySelector('div');
-        return Array.from(tabsContainer.querySelectorAll('button'))
-          .filter(b => b.textContent !== '+' && b.textContent !== '×')
-          .map(b => b.textContent);
-      })(),
-      local: true
-    });
-  });
-}, 5000);
+
+
 
 EventBus.on('tab:state', ({ local, label, names }) => {
   if (local) {
@@ -365,6 +414,35 @@ EventBus.on('tab:state', ({ local, label, names }) => {
     if (window.p2pSend) window.p2pSend({ channel: 'tab:state', payload: { label, names } });
   }
 });
+
+// Periodic full tab state sync control
+function startPeriodicFullSync() {
+  if (syncIntervalId) return;
+  syncIntervalId = setInterval(() => {
+    if (!window.isP2PConnected) return;
+    ['Character','Chat','Map'].forEach(label => {
+      EventBus.emit('tab:state', {
+        label,
+        names: (() => {
+          const container = label === 'Map' ? right : left;
+          const nav = container.querySelector('div');
+          const tabsContainer = nav.querySelector('div');
+          return Array.from(tabsContainer.querySelectorAll('button'))
+            .filter(b => b.textContent !== '+' && b.textContent !== '×')
+            .map(b => b.textContent);
+        })(),
+        local: true
+      });
+    });
+  }, 5000);
+}
+
+function stopPeriodicFullSync() {
+  if (syncIntervalId) {
+    clearInterval(syncIntervalId);
+    syncIntervalId = null;
+  }
+}
 
 
 
@@ -382,9 +460,9 @@ EventBus.on('map:imageChange', ({ local, id, ...data }) => {
   });
 });
 EventBus.on('map:tokenMove', ({ local, ...data }) => {
-  if (local) {
+  if (local && window.isP2PConnected) {
     console.log('[P2P SEND] map:token', data);
-    if (window.p2pSend) window.p2pSend({ channel: 'map:token', payload: data });
+    window.p2pSend({ channel: 'map:token', payload: data });
   }
 });
 EventBus.on('map:colorChange', ({ local, ...data }) => {

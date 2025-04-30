@@ -19,6 +19,9 @@ export class P2PConnection {
     // For callee: when data channel is received
     this.pc.ondatachannel = event => {
       this.dataChannel = event.channel;
+      // Enable binary data transfer
+      this.dataChannel.binaryType = 'arraybuffer';
+      this.dataChannel.onerror = error => console.error('P2P DataChannel error:', error);
       this._setupDataChannel();
     };
   }
@@ -69,7 +72,18 @@ export class P2PConnection {
   // Send JSON-serializable data to peer
   send(data) {
     if (this.dataChannel && this.dataChannel.readyState === 'open') {
-      this.dataChannel.send(JSON.stringify(data));
+      try {
+        // Send binary directly if provided, otherwise stringify JSON
+        if (data instanceof ArrayBuffer || data instanceof Blob) {
+          this.dataChannel.send(data);
+        } else if (data instanceof Uint8Array) {
+          this.dataChannel.send(data.buffer);
+        } else {
+          this.dataChannel.send(JSON.stringify(data));
+        }
+      } catch (e) {
+        console.error('Error sending data through DataChannel:', e);
+      }
     } else {
       console.warn('DataChannel not open, cannot send data');
     }

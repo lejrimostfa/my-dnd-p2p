@@ -110,6 +110,34 @@ if (window.isP2PConnected) {
   let isDragging = false;
   let dimAlpha = 1;
 
+  // Periodic map state sync (token position, size, color)
+  let mapSyncIntervalId = null;
+  function startMapPeriodicSync() {
+    if (mapSyncIntervalId) return;
+    mapSyncIntervalId = setInterval(() => {
+      const tok = globalTokens[localPeerId];
+      // Send token position
+      EventBus.emit('map:tokenMove', { id: localPeerId, x: tok.x, y: tok.y, local: true });
+      // Send size
+      const size = parseInt(sizeSlider.value, 10);
+      EventBus.emit('map:sizeChange', { id: localPeerId, size, local: true });
+      // Send color
+      const color = colorSelect.value;
+      EventBus.emit('map:colorChange', { id: localPeerId, color, local: true });
+    }, 1000);
+  }
+
+  // Listen for external startSync and launch map sync
+  EventBus.on('map:startSync', () => {
+    startMapPeriodicSync();
+  });
+  function stopMapPeriodicSync() {
+    if (mapSyncIntervalId) {
+      clearInterval(mapSyncIntervalId);
+      mapSyncIntervalId = null;
+    }
+  }
+
   // Resize & draw
   function resizeCanvas() {
     canvas.width = container.clientWidth;
@@ -282,6 +310,7 @@ if (window.isP2PConnected) {
     EventBus.emit('map:tokenMove', { id: localPeerId, x, y, local: true });
     uploadBtn.disabled = false;
     clearBtn.disabled = true;
+    startMapPeriodicSync();
   });
 
   // Progress bar event handler
@@ -318,6 +347,13 @@ if (window.isP2PConnected) {
     clearBtn.disabled = false;
     uploadBtn.disabled = true;
   }
+  // Stop periodic map sync on disconnect
+  EventBus.on('p2p:disconnected', ({ local }) => {
+    if (local) {
+      draw();
+      stopMapPeriodicSync();
+    }
+  });
   setTimeout(resizeCanvas, 0);
   // Ensure a valid DOM element is returned
   return container;
